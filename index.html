@@ -1,1 +1,143 @@
-<!doctype html><html><body><h1>AI Image Generator</h1></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Image Generator</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial; padding: 28px; color:#111 }
+    h1 { margin:0 0 18px; font-size:28px }
+    .row { display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+    textarea { width:420px; height:80px; padding:10px; font-size:14px; }
+    button { padding:10px 16px; font-size:14px; cursor:pointer; }
+    #status { margin-left:8px; color:#555; }
+    #result { margin-top:18px; }
+    img { max-width:100%; border:1px solid #ddd; padding:6px; border-radius:6px; background:#fff }
+    .error { color:crimson; margin-top:8px; }
+    .small { font-size:13px; color:#666; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <h1>AI Image Generator</h1>
+
+  <div class="row">
+    <textarea id="prompt" placeholder="Write a prompt, e.g. 'a cute cat wearing sunglasses'"></textarea>
+    <div style="display:flex;flex-direction:column">
+      <button id="generate">Generate</button>
+      <div class="small">Powered by your Netlify function → Replicate</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div id="status"></div>
+  </div>
+
+  <div id="result"></div>
+  <div id="error" class="error"></div>
+
+<script>
+(async()=> {
+  const promptEl = document.getElementById('prompt');
+  const btn = document.getElementById('generate');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  const errorEl = document.getElementById('error');
+
+  function setStatus(t){
+    status.textContent = t;
+  }
+  function clearResult(){
+    result.innerHTML = '';
+    errorEl.textContent = '';
+  }
+
+  async function displayImageFromUrl(url){
+    // create an image element and show it
+    const img = document.createElement('img');
+    // if url is a data URI or http(s) link
+    img.src = url;
+    result.innerHTML = '';
+    result.appendChild(img);
+  }
+
+  async function handleResponseJson(json){
+    // tries several common response shapes
+    // 1) { image: 'data:image/png;base64,...' }
+    // 2) { output: ['https://...'] }  (Replicate common)
+    // 3) { url: 'https://...' }
+    if(!json) throw new Error('Empty response');
+    if(json.image){
+      await displayImageFromUrl(json.image);
+      return;
+    }
+    if(json.url){
+      await displayImageFromUrl(json.url);
+      return;
+    }
+    if(Array.isArray(json.output) && json.output.length > 0){
+      const first = json.output[0];
+      // if it's a remote url
+      if(typeof first === 'string') {
+        await displayImageFromUrl(first);
+        return;
+      }
+      // if output[0] is object with url property
+      if(first && first.url) {
+        await displayImageFromUrl(first.url);
+        return;
+      }
+    }
+    // If the JSON contains a field 'result' or 'image_url' try those
+    if(json.result && typeof json.result === 'string') {
+      await displayImageFromUrl(json.result);
+      return;
+    }
+    if(json.image_url) {
+      await displayImageFromUrl(json.image_url);
+      return;
+    }
+
+    // fallback: show raw JSON text
+    result.innerHTML = '<pre>' + JSON.stringify(json, null, 2) + '</pre>';
+  }
+
+  btn.addEventListener('click', async () => {
+    clearResult();
+    const prompt = promptEl.value.trim();
+    if(!prompt){
+      errorEl.textContent = 'Please enter a prompt first.';
+      return;
+    }
+
+    setStatus('Sending request…');
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/.netlify/functions/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+
+      if(!resp.ok){
+        // try to get JSON error message
+        let txt;
+        try { txt = await resp.text(); } catch(e){ txt = resp.statusText; }
+        throw new Error('Server error: ' + resp.status + ' — ' + txt);
+      }
+
+      // parse JSON response
+      const json = await resp.json();
+      await handleResponseJson(json);
+      setStatus('Done');
+    } catch (err) {
+      console.error('Generate error', err);
+      errorEl.textContent = err.message || String(err);
+      setStatus('Error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
