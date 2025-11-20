@@ -1,0 +1,8 @@
+{
+  "name": "ai-image-generator",
+  "version": "1.0.0",
+  "description": "",
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  }
+}
